@@ -1,0 +1,12 @@
+[package]
+name = "erc8004"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "ERC-8004 Trustless Agents Rust SDK."
+
+[dependencies]
+
+[lints]
+workspace = true
