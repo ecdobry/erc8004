@@ -6,12 +6,12 @@
 //! use alloy::providers::ProviderBuilder;
 //! use erc8004::{Erc8004, Network};
 //!
-//! # async fn example() -> erc8004::Result<()> {
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let provider = ProviderBuilder::new()
 //!     .connect_http("https://eth.llamarpc.com".parse()?);
 //! let client = Erc8004::new(provider).with_network(Network::EthereumMainnet);
 //!
-//! let total = client.identity()?.total_agents().await?;
+//! let version = client.identity()?.get_version().await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -39,14 +39,14 @@ use crate::{
 /// use alloy::providers::ProviderBuilder;
 /// use erc8004::{Erc8004, Network};
 ///
-/// # async fn example() -> erc8004::Result<()> {
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let provider = ProviderBuilder::new()
 ///     .connect_http("https://eth.llamarpc.com".parse()?);
 ///
 /// let client = Erc8004::new(provider)
 ///     .with_network(Network::EthereumMainnet);
 ///
-/// let exists = client.identity()?.agent_exists(1u64.into()).await?;
+/// let version = client.identity()?.get_version().await?;
 /// # Ok(())
 /// # }
 /// ```

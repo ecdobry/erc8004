@@ -32,10 +32,6 @@ impl<P: Provider> Identity<P> {
         Self { address, provider }
     }
 
-    // -----------------------------------------------------------------------
-    // Write operations
-    // -----------------------------------------------------------------------
-
     /// Register a new agent with no URI (URI can be set later via
     /// [`set_agent_uri`](Self::set_agent_uri)).
     ///
@@ -169,28 +165,20 @@ impl<P: Provider> Identity<P> {
         Ok(())
     }
 
-    // -----------------------------------------------------------------------
-    // Read operations
-    // -----------------------------------------------------------------------
-
-    /// Check whether an agent with the given ID exists.
+    /// Check whether `spender` is the owner or an approved operator for the agent.
+    ///
+    /// Reverts with `ERC721NonexistentToken` if the agent does not exist,
+    /// which can also serve as an existence check.
     ///
     /// # Errors
     ///
     /// Returns an error if the RPC call fails.
-    pub async fn agent_exists(&self, agent_id: U256) -> Result<bool> {
+    pub async fn is_authorized_or_owner(&self, spender: Address, agent_id: U256) -> Result<bool> {
         let contract = IdentityRegistry::new(self.address, &self.provider);
-        Ok(contract.agentExists(agent_id).call().await?)
-    }
-
-    /// Get the total number of registered agents.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the RPC call fails.
-    pub async fn total_agents(&self) -> Result<U256> {
-        let contract = IdentityRegistry::new(self.address, &self.provider);
-        Ok(contract.totalAgents().call().await?)
+        Ok(contract
+            .isAuthorizedOrOwner(spender, agent_id)
+            .call()
+            .await?)
     }
 
     /// Get the `agentURI` (ERC-721 `tokenURI`) for an agent.
@@ -215,12 +203,12 @@ impl<P: Provider> Identity<P> {
 
     /// Get the agent wallet address for an agent.
     ///
-    /// Returns the raw bytes; decode as `Address` if the wallet is set.
+    /// Returns [`Address::ZERO`] if the wallet has not been set.
     ///
     /// # Errors
     ///
     /// Returns an error if the RPC call fails.
-    pub async fn get_agent_wallet(&self, agent_id: U256) -> Result<Bytes> {
+    pub async fn get_agent_wallet(&self, agent_id: U256) -> Result<Address> {
         let contract = IdentityRegistry::new(self.address, &self.provider);
         Ok(contract.getAgentWallet(agent_id).call().await?)
     }

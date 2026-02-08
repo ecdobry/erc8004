@@ -12,7 +12,7 @@
 //! use alloy::providers::ProviderBuilder;
 //! use erc8004::{Erc8004, Network};
 //!
-//! # async fn example() -> erc8004::Result<()> {
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // 1. Create an alloy provider (any transport works: HTTP, WS, IPC)
 //! let provider = ProviderBuilder::new()
 //!     .connect_http("https://eth.llamarpc.com".parse()?);
@@ -22,8 +22,8 @@
 //!     .with_network(Network::EthereumMainnet);
 //!
 //! // 3. Interact with the registries
-//! let total = client.identity()?.total_agents().await?;
-//! println!("Total registered agents: {total}");
+//! let version = client.identity()?.get_version().await?;
+//! println!("Contract version: {version}");
 //! # Ok(())
 //! # }
 //! ```

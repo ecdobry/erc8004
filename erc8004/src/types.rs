@@ -6,10 +6,6 @@
 
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Agent Registration File (off-chain JSON resolved by agentURI)
-// ---------------------------------------------------------------------------
-
 /// The top-level agent registration file resolved by `agentURI`.
 ///
 /// See: <https://eips.ethereum.org/EIPS/eip-8004#agent-uri-and-agent-registration-file>
@@ -92,10 +88,6 @@ pub struct Registration {
     pub agent_registry: String,
 }
 
-// ---------------------------------------------------------------------------
-// Feedback (on-chain return types)
-// ---------------------------------------------------------------------------
-
 /// A single feedback entry as returned by `readFeedback`.
 #[derive(Debug, Clone)]
 pub struct Feedback {
@@ -127,10 +119,6 @@ pub struct ReputationSummary {
     /// Decimal places for `summary_value`.
     pub summary_value_decimals: u8,
 }
-
-// ---------------------------------------------------------------------------
-// Validation (on-chain return types)
-// ---------------------------------------------------------------------------
 
 /// The status of a validation request as returned by `getValidationStatus`.
 #[derive(Debug, Clone)]

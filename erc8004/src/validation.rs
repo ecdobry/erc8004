@@ -33,10 +33,6 @@ impl<P: Provider> Validation<P> {
         Self { address, provider }
     }
 
-    // -----------------------------------------------------------------------
-    // Write operations
-    // -----------------------------------------------------------------------
-
     /// Submit a validation request for an agent.
     ///
     /// Must be called by the owner or operator of `agent_id`.
@@ -112,10 +108,6 @@ impl<P: Provider> Validation<P> {
             .await?;
         Ok(())
     }
-
-    // -----------------------------------------------------------------------
-    // Read operations
-    // -----------------------------------------------------------------------
 
     /// Get the current status of a validation request.
     ///
