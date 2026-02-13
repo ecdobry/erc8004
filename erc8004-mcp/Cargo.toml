@@ -1,0 +1,27 @@
+[package]
+name = "erc8004-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MCP server exposing the ERC-8004 SDK as tools."
+
+[[bin]]
+name = "erc8004-mcp"
+path = "src/main.rs"
+
+[dependencies]
+erc8004 = { path = "../erc8004" }
+alloy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+rmcp.workspace = true
+schemars.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+
+[lints]
+workspace = true
