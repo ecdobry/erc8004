@@ -1761,6 +1761,7 @@ dependencies = [
  "anyhow",
  "clap",
  "erc8004",
+ "reqwest",
  "rmcp",
  "schemars 1.2.1",
  "serde",

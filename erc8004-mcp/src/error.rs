@@ -42,6 +42,24 @@ pub fn parse_address(s: &str) -> Result<Address, ErrorData> {
     })
 }
 
+/// Create an [`ErrorData`] for an HTTP fetch failure.
+pub fn http_error(url: &str, err: &reqwest::Error) -> ErrorData {
+    ErrorData {
+        code: ErrorCode(-32003),
+        message: Cow::Owned(format!("HTTP request to '{url}' failed: {err}")),
+        data: None,
+    }
+}
+
+/// Create an [`ErrorData`] for a JSON parse failure.
+pub fn json_parse_error(err: impl std::fmt::Display) -> ErrorData {
+    ErrorData {
+        code: ErrorCode(-32004),
+        message: Cow::Owned(format!("failed to parse JSON: {err}")),
+        data: None,
+    }
+}
+
 /// Parse a hex string into a [`FixedBytes<32>`].
 ///
 /// # Errors

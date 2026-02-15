@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "erc8004": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--release",
+        "--package",
+        "erc8004-mcp",
+        "--",
+        "--rpc-url",
+        "https://eth.llamarpc.com",
+        "--network",
+        "ethereum-mainnet"
+      ]
+    }
+  }
+}

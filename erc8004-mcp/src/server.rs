@@ -3,9 +3,12 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use alloy::primitives::Bytes;
+use alloy::primitives::{Bytes, U256, address};
 use alloy::providers::DynProvider;
+use alloy::sol;
+use alloy::sol_types::SolCall;
 use erc8004::Erc8004;
+use erc8004::contracts::IdentityRegistry;
 use rmcp::handler::server::tool::{ToolCallContext, ToolRouter};
 use rmcp::model::{
     CallToolRequestParam, CallToolResult, Implementation, InitializeRequestParam,
@@ -17,7 +20,34 @@ use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, Json, ServerHandler, tool, tool_router};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{parse_address, parse_bytes32, parse_u256, to_mcp_error};
+use crate::error::{
+    http_error, json_parse_error, parse_address, parse_bytes32, parse_u256,
+    to_mcp_error,
+};
+
+sol! {
+    /// Multicall3 — batch multiple `eth_call` into a single RPC round-trip.
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    contract Multicall3 {
+        struct Call3 {
+            address target;
+            bool allowFailure;
+            bytes callData;
+        }
+        struct Result {
+            bool success;
+            bytes returnData;
+        }
+        function aggregate3(
+            Call3[] calldata calls
+        ) external payable returns (Result[] memory returnData);
+    }
+}
+
+/// Standard Multicall3 deployment address (same on all EVM chains).
+const MULTICALL3_ADDRESS: alloy::primitives::Address =
+    address!("cA11bde05977b3631167028862bE2a173976CA11");
 
 // ---------------------------------------------------------------------------
 // Server struct
@@ -325,6 +355,141 @@ pub struct ValidationSummaryResponse {
     pub count: u64,
     /// Average response score (0-100).
     pub avg_response: u8,
+}
+
+// -- Identity Exploration --
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ScanAgentsRequest {
+    /// Start agent ID (decimal string, inclusive).
+    pub start_id: String,
+    /// End agent ID (decimal string, inclusive). Max range is 100.
+    pub end_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ScannedAgent {
+    /// The agent ID (decimal string).
+    pub agent_id: String,
+    /// The owner address (0x-prefixed hex).
+    pub owner: String,
+    /// The agent URI string.
+    pub uri: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ScanAgentsResponse {
+    /// Agents found in the scanned range.
+    pub agents: Vec<ScannedAgent>,
+    /// Number of IDs probed.
+    pub scanned: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RegistrationFileResponse {
+    /// Registration file type URI.
+    #[serde(rename = "type")]
+    pub type_field: String,
+    /// Agent name.
+    pub name: String,
+    /// Agent description.
+    pub description: String,
+    /// Agent image URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// Service endpoints.
+    pub services: Vec<ServiceEndpointResponse>,
+    /// Whether the agent supports x402.
+    pub x402_support: bool,
+    /// Whether the agent is active.
+    pub active: bool,
+    /// On-chain registrations.
+    pub registrations: Vec<RegistrationResponse>,
+    /// Supported trust frameworks.
+    pub supported_trust: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ServiceEndpointResponse {
+    /// Service protocol name (A2A, MCP, etc.).
+    pub name: String,
+    /// Service endpoint URL.
+    pub endpoint: String,
+    /// Protocol version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Agent skills.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skills: Option<Vec<String>>,
+    /// Agent domains.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domains: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RegistrationResponse {
+    /// On-chain agent ID.
+    pub agent_id: u64,
+    /// Registry identifier (namespace:chainId:address).
+    pub agent_registry: String,
+}
+
+// -- Reputation Exploration --
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ReadAllFeedbackRequest {
+    /// The agent ID (decimal string).
+    pub agent_id: String,
+    /// Client addresses to filter by (0x-prefixed hex). Empty = all.
+    #[serde(default)]
+    pub client_addresses: Vec<String>,
+    /// Primary categorization tag filter.
+    #[serde(default)]
+    pub tag1: String,
+    /// Secondary categorization tag filter.
+    #[serde(default)]
+    pub tag2: String,
+    /// Whether to include revoked feedback entries.
+    #[serde(default)]
+    pub include_revoked: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AllFeedbackEntry {
+    /// Client address (0x-prefixed hex).
+    pub client: String,
+    /// Feedback index for this client.
+    pub feedback_index: u64,
+    /// Feedback value (as string for precision).
+    pub value: String,
+    /// Decimal places for the value.
+    pub value_decimals: u8,
+    /// Primary categorization tag.
+    pub tag1: String,
+    /// Secondary categorization tag.
+    pub tag2: String,
+    /// Whether the feedback has been revoked.
+    pub is_revoked: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AllFeedbackResponse {
+    /// All feedback entries matching the filter.
+    pub entries: Vec<AllFeedbackEntry>,
+}
+
+// -- Validation Exploration --
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ValidationHashesResponse {
+    /// Validation request hashes (0x-prefixed hex, 32 bytes each).
+    pub request_hashes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GetValidatorRequestsRequest {
+    /// The validator address (0x-prefixed hex).
+    pub validator_address: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -698,6 +863,283 @@ impl Erc8004McpServer {
             count: summary.count,
             avg_response: summary.avg_response,
         }))
+    }
+
+    #[tool(
+        description = "List all validation request hashes for an agent. \
+                       Requires --validation-address."
+    )]
+    async fn validation_get_agent_validations(
+        &self,
+        params: Parameters<AgentIdRequest>,
+    ) -> Result<Json<ValidationHashesResponse>, ErrorData> {
+        let validation = self.client.validation().map_err(to_mcp_error)?;
+        let agent_id = parse_u256(&params.0.agent_id)?;
+        let hashes = validation
+            .get_agent_validations(agent_id)
+            .await
+            .map_err(to_mcp_error)?;
+        Ok(Json(ValidationHashesResponse {
+            request_hashes: hashes.iter().map(|h| format!("{h}")).collect(),
+        }))
+    }
+
+    #[tool(
+        description = "List all validation request hashes for a validator. \
+                       Requires --validation-address."
+    )]
+    async fn validation_get_validator_requests(
+        &self,
+        params: Parameters<GetValidatorRequestsRequest>,
+    ) -> Result<Json<ValidationHashesResponse>, ErrorData> {
+        let validation = self.client.validation().map_err(to_mcp_error)?;
+        let validator_address = parse_address(&params.0.validator_address)?;
+        let hashes = validation
+            .get_validator_requests(validator_address)
+            .await
+            .map_err(to_mcp_error)?;
+        Ok(Json(ValidationHashesResponse {
+            request_hashes: hashes.iter().map(|h| format!("{h}")).collect(),
+        }))
+    }
+
+    // -----------------------------------------------------------------------
+    // Reputation Registry - Exploration
+    // -----------------------------------------------------------------------
+
+    #[tool(
+        description = "Batch read all feedback for an agent with optional \
+                       client, tag, and revoked filters."
+    )]
+    async fn reputation_read_all_feedback(
+        &self,
+        params: Parameters<ReadAllFeedbackRequest>,
+    ) -> Result<Json<AllFeedbackResponse>, ErrorData> {
+        let reputation = self.client.reputation().map_err(to_mcp_error)?;
+        let agent_id = parse_u256(&params.0.agent_id)?;
+        let client_addresses = params
+            .0
+            .client_addresses
+            .iter()
+            .map(|s| parse_address(s))
+            .collect::<Result<Vec<_>, _>>()?;
+        let raw = reputation
+            .read_all_feedback(
+                agent_id,
+                client_addresses,
+                &params.0.tag1,
+                &params.0.tag2,
+                params.0.include_revoked,
+            )
+            .await
+            .map_err(to_mcp_error)?;
+        let entries = raw
+            .clients
+            .into_iter()
+            .zip(raw.feedbackIndexes)
+            .zip(raw.values)
+            .zip(raw.valueDecimals)
+            .zip(raw.tag1s)
+            .zip(raw.tag2s)
+            .zip(raw.revokedStatuses)
+            .map(
+                |((((((client, idx), val), dec), t1), t2), revoked)| {
+                    AllFeedbackEntry {
+                        client: format!("{client:#}"),
+                        feedback_index: idx,
+                        value: val.to_string(),
+                        value_decimals: dec,
+                        tag1: t1,
+                        tag2: t2,
+                        is_revoked: revoked,
+                    }
+                },
+            )
+            .collect();
+        Ok(Json(AllFeedbackResponse { entries }))
+    }
+
+    // -----------------------------------------------------------------------
+    // Identity Registry - Exploration
+    // -----------------------------------------------------------------------
+
+    #[tool(
+        description = "Probe a range of agent IDs (max 100), returning \
+                       owner + URI for each existing agent."
+    )]
+    async fn identity_scan_agents(
+        &self,
+        params: Parameters<ScanAgentsRequest>,
+    ) -> Result<Json<ScanAgentsResponse>, ErrorData> {
+        let start = parse_u256(&params.0.start_id)?;
+        let end = parse_u256(&params.0.end_id)?;
+        if end < start {
+            return Err(ErrorData {
+                code: rmcp::model::ErrorCode(-32001),
+                message: Cow::Borrowed("end_id must be >= start_id"),
+                data: None,
+            });
+        }
+        let range_size = end - start + U256::from(1);
+        if range_size > U256::from(100) {
+            return Err(ErrorData {
+                code: rmcp::model::ErrorCode(-32001),
+                message: Cow::Borrowed(
+                    "range too large: max 100 IDs per scan",
+                ),
+                data: None,
+            });
+        }
+        let scanned: u64 = range_size.try_into().map_err(|_| ErrorData {
+            code: rmcp::model::ErrorCode(-32001),
+            message: Cow::Borrowed("range overflow"),
+            data: None,
+        })?;
+        let identity_address =
+            self.client.identity_address().ok_or(ErrorData {
+                code: rmcp::model::ErrorCode(-32000),
+                message: Cow::Borrowed(
+                    "identity registry not configured",
+                ),
+                data: None,
+            })?;
+
+        // Build Multicall3 batch: ownerOf + tokenURI per ID
+        let ids: Vec<U256> = (0..scanned)
+            .map(|offset| start + U256::from(offset))
+            .collect();
+        let calls: Vec<Multicall3::Call3> = ids
+            .iter()
+            .flat_map(|&id| {
+                let owner_data =
+                    IdentityRegistry::ownerOfCall { tokenId: id }
+                        .abi_encode();
+                let uri_data =
+                    IdentityRegistry::tokenURICall { tokenId: id }
+                        .abi_encode();
+                [
+                    Multicall3::Call3 {
+                        target: identity_address,
+                        allowFailure: true,
+                        callData: owner_data.into(),
+                    },
+                    Multicall3::Call3 {
+                        target: identity_address,
+                        allowFailure: true,
+                        callData: uri_data.into(),
+                    },
+                ]
+            })
+            .collect();
+
+        let multicall =
+            Multicall3::new(MULTICALL3_ADDRESS, self.client.provider());
+        let results = multicall
+            .aggregate3(calls)
+            .call()
+            .await
+            .map_err(|e| to_mcp_error(e.into()))?;
+
+        // Decode pairs of (ownerOf result, tokenURI result)
+        let agents = ids
+            .iter()
+            .zip(results.chunks(2))
+            .filter_map(|(id, chunk): (&U256, &[Multicall3::Result])| {
+                let owner_res = &chunk[0];
+                if !owner_res.success {
+                    return None;
+                }
+                let owner: alloy::primitives::Address =
+                    IdentityRegistry::ownerOfCall::abi_decode_returns(
+                        &owner_res.returnData,
+                    )
+                    .ok()?;
+                let uri: String = chunk
+                    .get(1)
+                    .filter(|r| r.success)
+                    .and_then(|r| {
+                        IdentityRegistry::tokenURICall::abi_decode_returns(
+                            &r.returnData,
+                        )
+                        .ok()
+                    })
+                    .unwrap_or_default();
+                Some(ScannedAgent {
+                    agent_id: id.to_string(),
+                    owner: format!("{owner:#}"),
+                    uri,
+                })
+            })
+            .collect();
+        Ok(Json(ScanAgentsResponse { agents, scanned }))
+    }
+
+    #[tool(
+        description = "Fetch an agent's registration file (tokenURI content) \
+                       and parse it as a RegistrationFile with name, \
+                       description, services, and protocols."
+    )]
+    async fn identity_fetch_registration_file(
+        &self,
+        params: Parameters<AgentIdRequest>,
+    ) -> Result<Json<RegistrationFileResponse>, ErrorData> {
+        let identity = self.client.identity().map_err(to_mcp_error)?;
+        let agent_id = parse_u256(&params.0.agent_id)?;
+        let uri = identity
+            .token_uri(agent_id)
+            .await
+            .map_err(to_mcp_error)?;
+        if uri.is_empty() {
+            return Err(ErrorData {
+                code: rmcp::model::ErrorCode(-32002),
+                message: Cow::Owned(format!(
+                    "agent {agent_id} has no URI set"
+                )),
+                data: None,
+            });
+        }
+        let body = reqwest::get(&uri)
+            .await
+            .map_err(|e| http_error(&uri, &e))?
+            .text()
+            .await
+            .map_err(|e| http_error(&uri, &e))?;
+        let reg = erc8004::types::RegistrationFile::from_json(&body)
+            .map_err(json_parse_error)?;
+        Ok(Json(RegistrationFileResponse::from(reg)))
+    }
+}
+
+impl From<erc8004::types::RegistrationFile> for RegistrationFileResponse {
+    fn from(r: erc8004::types::RegistrationFile) -> Self {
+        Self {
+            type_field: r.type_field,
+            name: r.name,
+            description: r.description,
+            image: r.image,
+            services: r
+                .services
+                .into_iter()
+                .map(|s| ServiceEndpointResponse {
+                    name: s.name,
+                    endpoint: s.endpoint,
+                    version: s.version,
+                    skills: s.skills,
+                    domains: s.domains,
+                })
+                .collect(),
+            x402_support: r.x402_support,
+            active: r.active,
+            registrations: r
+                .registrations
+                .into_iter()
+                .map(|reg| RegistrationResponse {
+                    agent_id: reg.agent_id,
+                    agent_registry: reg.agent_registry,
+                })
+                .collect(),
+            supported_trust: r.supported_trust,
+        }
     }
 }
 
